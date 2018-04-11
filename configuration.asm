@@ -2,76 +2,114 @@ bits 16
 org 0x7C00
 
 	cli
-	xor ax,ax
-	mov ds,ax
-	mov es,ax
-	mov edi, 0xB8000;
-        mov byte[edi+1],51
+mov ah , 0x02
+mov al ,8
+mov dl , 0x80
+mov ch , 0
+mov dh , 0
+mov cl , 2
+mov bx, START
+int 0x13
+jmp START
+
+
+times (510 - ($ - $$)) db 0
+db 0x55, 0xAA
+START:
+cli
+	
+	xor ax , ax  
+	mov ss , ax 
+	mov sp , 0xffff
+	
+        mov edi, 0xB8000
         mov bx,ScanCodeTable
-        xor ch,ch
-checkAgain:	
+checkAgain:
+call SetCursor	
 in al,0x64
-shr al,1
-jnc checkAgain 	
+and al,0x01
+jz checkAgain 	
 Read:
 in al,0x60
-cmp al,0x2A
+;###SPECIAL_CASES###
+SHIFT:
+cmp al,0x2A ; SH make
 je shift
-cmp al,0x36
+cmp al,0x36 ;SH make
 je shift
+SHIFTBREAK:
 cmp al,0xAA;R SH break
-jne A
+jne SHIFTBREAK2
 mov ch,0
 mov bx,ScanCodeTable
 jmp checkAgain
-A:
+SHIFTBREAK2:
 cmp al,0xB6;L SH break
-jne B
+jne CAPSLOCK
 mov ch,0
 mov bx,ScanCodeTable
 jmp checkAgain
-B:
+CAPSLOCK: ; make
+cmp al,0x3A
+jne Arrows
+xor byte[STATUS],0x02;set 
+jmp checkAgain
+Arrows: ; [0xE0 arrow] or [0xE0 0xAA 0xE0 arrow] or [0xE0 0xB6 0xE0 arrow]
+cmp AL,0xE0
+jne BKSP
+cAg:
+in al,0x64
+and al,0x01
+jz cAg 	
+in al,0x60
+cmp AL,0xAA
+je SHADE  
+cmp AL,0xB6
+je SHADE
+
+
+LEFT:
 cmp al,0x4B ; Left Arrow
-jne C
-mov byte[edi+1],0x0F
-dec edi
-mov byte[edi],0x51
-dec edi
+jne RIGHT
+sub edi,2
 jmp checkAgain
-C:
+RIGHT:
 cmp al,0x4D ; Right Arrow
-jne D
-mov byte[edi-1],0x0F
-inc edi
-mov byte[edi],0x51
-inc edi
+jne UP
+add edi,2
 jmp checkAgain
-D:
+UP:
 cmp al,0x48 ; up
-jne V
-mov byte[edi-1],0x0F
-sub edi,0xA0
-mov byte[edi-1],0x51
+jne DOWN
+sub edi,0xA0 ;80 * 2
 cmp edi,0xB8000
 jnl checkAgain
 add edi,0xA0
 jmp checkAgain
-V:
+DOWN:
 cmp al,0x50 ;down
-jne R
-mov byte[edi-1],0x0F
+jne Del
 add edi,0xA0
-mov byte[edi-1],0x51
-cmp edi,0xBFFFF
+cmp edi,0xB8FA0
 jng checkAgain
 sub edi,0xA0
 jmp checkAgain
-R:
+
+
+Del:
+;;;;
+jmp checkAgain
+
+
+
+;####### 0xE0
+
+
+BKSP: 
 cmp al,0x0E ; BKSP
-jne T
-mov byte[edi+1],0x0F
+jne TAB
 mov ebp,edi
-mov edi,0xBFFFE
+mov edi,0xB8FA0
 mov dl,[edi]
 HA:
 mov cl,dl
@@ -80,25 +118,21 @@ mov dl,[edi]
 mov [edi],cl
 cmp edi,ebp
 jnl HA
-mov byte[edi+1],0x51
 jmp checkAgain
-T:
-cmp al,0x0F ; tab
-jne VV
-mov byte[edi-1],0x0F
-mov ecx,4
+TAB:
+cmp al,0x0F ; tab ******
+jne ENTR
+mov ecx,8
 CC:
 mov byte[edi],' '
 inc edi
 inc edi
 loop CC
-mov byte[edi-1],0x51
 jmp checkAgain
-VV:
+ENTR:
 cmp al,0x1C ; enter
-jne RR
+jne CHARS
 mov esi,edi
-mov byte[edi-1],0x0F
 xor edx,edx
 mov eax,edi
 sub eax,0xB8000
@@ -106,17 +140,31 @@ mov ecx,0xA0
 div ecx
 sub edx,0xA0
 sub edi,edx
-mov byte[edi-1],0x51
 jmp checkAgain
-RR:
+
+
+CHARS:
 
 cmp al,0x80
 jnb checkAgain
 xlat
+test byte[STATUS],0x02 ; CapsLock
+jz print
+cmp al,'a'
+jb d
+cmp al,'z'
+ja d
+sub AL,0x20 ; to cap
+jmp print
+d:
+cmp al,'A'
+jb print
+cmp al,'Z'
+ja print
+add AL,0x20 ; to small
 print:
-mov byte[edi-1],15
 mov ebp,edi
-mov esi,0x7FFF
+mov esi,0xFA0
 mov dl,[edi]
 HB:
 mov cl,dl
@@ -129,7 +177,6 @@ jne HB
 mov edi,ebp
 mov [edi],al
 inc edi
-mov byte[edi],0x51
 inc edi
 
 jmp checkAgain
@@ -140,13 +187,74 @@ mov ch,1
 mov bx,ScanCodeTableSH
 jmp checkAgain
 
+SHADE: ;[0xE0 0xAA 0xE0 arrow] or [0xE0 0xB6 0xE0 arrow]
+mov esi,edi
+AAG:
+in al,0x64
+and al,0x01
+jz AAG
+in al,0x60
+cmp AL,0xE0
+jne checkAgain
+AAG2:
+in al,0x64
+and al,0x01
+jz AAG2
+in al,0x60
+LEFTSH:
+cmp al,0x4B ; Left Arrow
+jne RIGHTSH
+dec edi
+dec edi
+mov byte[edi+1],0x1F
+jmp checkAgain
+RIGHTSH:
+cmp al,0x4D ; Right Arrow
+jne UPSH
+add edi,2
+mov byte[edi+1],0x1F
+jmp checkAgain
+UPSH:
+cmp al,0x48 ; up
+jne DOWNSH
+mov ecx,0x50 ;80 
+LABEL:
+sub edi,2
+mov byte[edi+1],0x1F
+loop LABEL
+jmp checkAgain
+DOWNSH:
+cmp al,0x50 ;down
+jne checkAgain
+mov ecx,0x50 ;80 
+LABEL2:
+add edi,2
+mov byte[edi+1],0x1F
+loop LABEL2
+jmp checkAgain
 
+
+SetCursor:
+push ebx
+mov eax,edi
+sub eax,0xB8000
+mov ecx,160
+xor edx,edx
+div ecx
+mov dh,al ; row
+; column is already in edx and so in dl, but multiplied by 2
+shr dl,1 ; div by 2
+mov ah,0x02
+mov bh,0
+int 0x10
+pop ebx
+ret
 
 ScanCodeTable:   db "//1234567890-=//qwertyuiop[]//asdfghjkl;'`/\zxcvbnm,.//// /"
 ScanCodeTableSH: db '//!@#$%^&*()_+//QWERTYUIOP{}//ASDFGHJKL:"~/|ZXCVBNM<>?/// /' 
+STATUS: db 0 ; X _ X _ X _ X _ X _ SH _ CL _ NL 
+; shift at bit 2 , capslock at bit 1 and numlock at bit 0
 
-times (510 - ($ - $$)) db 0
-db 0x55, 0xAA
 times (0x400000 - 512) db 0
 
 db 	0x63, 0x6F, 0x6E, 0x65, 0x63, 0x74, 0x69, 0x78, 0x00, 0x00, 0x00, 0x02

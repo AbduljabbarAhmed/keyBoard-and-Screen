@@ -23,6 +23,13 @@ cli
 	mov sp , 0xffff
 	
         mov edi, 0xB8000
+        mov esi,edi
+        SETNULL:
+        mov byte[esi],0
+        mov byte[esi+1],0x0F
+        add esi,2
+        cmp esi,0xB8FA0
+        jle SETNULL
         mov bx,ScanCodeTable
 checkAgain:
 call SetCursor	
@@ -51,8 +58,13 @@ mov bx,ScanCodeTable
 jmp checkAgain
 CAPSLOCK: ; make
 cmp al,0x3A
-jne Arrows
+jne NUMLOCK
 xor byte[STATUS],0x02;set 
+jmp checkAgain
+NUMLOCK: ; make
+cmp al,0x45
+jne Arrows
+xor byte[STATUS],0x01;set 
 jmp checkAgain
 Arrows: ; [0xE0 arrow] or [0xE0 0xAA 0xE0 arrow] or [0xE0 0xB6 0xE0 arrow]
 cmp AL,0xE0
@@ -71,37 +83,132 @@ je SHADE
 LEFT:
 cmp al,0x4B ; Left Arrow
 jne RIGHT
+left:
+cmp edi,0xB8000
+je checkAgain
+mov eax,edi
+sub eax,0xB8000
+mov ecx,160
+xor edx,edx
+div ecx
+cmp edx,0
+jne NotFirst
+RepeatThat:
+sub edi,2
+mov eax,edi
+sub eax,0xB8000
+mov ecx,160
+xor edx,edx
+div ecx
+cmp edx,0
+je bbb
+cmp byte[edi-2],0
+je RepeatThat
+bbb:
+jmp checkAgain
+
+
+NotFirst:
 sub edi,2
 jmp checkAgain
 RIGHT:
 cmp al,0x4D ; Right Arrow
 jne UP
+right:
+cmp edi,0xFA0
+je checkAgain
+cmp byte[edi+2],0
+je nextline
 add edi,2
+jmp checkAgain
+nextline:
+xor edx,edx
+mov eax,edi
+sub eax,0xB8000
+mov ecx,0xA0
+div ecx
+sub edx,0xA0
+sub edi,edx
 jmp checkAgain
 UP:
 cmp al,0x48 ; up
 jne DOWN
+up:
+cmp edi,0xB80A0 ; first line
+jl checkAgain
 sub edi,0xA0 ;80 * 2
-cmp edi,0xB8000
-jnl checkAgain
-add edi,0xA0
-jmp checkAgain
+cmp byte[edi-2],0
+jne checkAgain
+RepeatThat2:
+mov eax,edi
+sub eax,0xB8000 ; 
+mov ecx,160
+xor edx,edx
+div ecx
+cmp edx,0
+je checkAgain
+sub edi,2
+cmp byte[edi-2],0
+je RepeatThat2
 DOWN:
 cmp al,0x50 ;down
 jne Del
+down:
+cmp edi,0xB8F00; last line
+jge checkAgain
 add edi,0xA0
-cmp edi,0xB8FA0
-jng checkAgain
-sub edi,0xA0
+RepeatThat3:
+mov eax,edi
+sub eax,0xB8000 ; 
+mov ecx,0xA0
+xor edx,edx
+div ecx
+cmp edx,0
+je checkAgain
+sub edi,2
+cmp byte[edi-2],0
+je RepeatThat3
 jmp checkAgain
 
 
 Del:
 ;;;;
+cmp AL,0x53
+jne HOME
+del:
+mov ebp,edi
+HA2:
+mov dl,[edi+2]
+mov [edi],dl
+add edi,2
+cmp dl,0
+jne HA2
+mov edi,ebp
 jmp checkAgain
 
-
-
+HOME:
+cmp AL,0x47
+jne END
+home:
+xor edx,edx
+mov eax,edi
+sub eax,0xB8000
+mov ecx,0xA0
+div ecx
+sub edi,edx
+jmp checkAgain
+END:
+cmp AL,0x3F
+jne checkAgain
+end:
+xor edx,edx
+mov eax,edi
+sub eax,0xB8000
+mov ecx,0xA0
+div ecx
+sub edi,edx
+add edi,0x9E
+jmp checkAgain
 ;####### 0xE0
 
 
@@ -109,15 +216,14 @@ BKSP:
 cmp al,0x0E ; BKSP
 jne TAB
 mov ebp,edi
-mov edi,0xB8FA0
-mov dl,[edi]
 HA:
-mov cl,dl
-sub edi,2
 mov dl,[edi]
-mov [edi],cl
-cmp edi,ebp
-jnl HA
+mov [edi-2],dl
+add edi,2
+cmp dl,0
+jne HA
+mov edi,ebp
+sub edi,2
 jmp checkAgain
 TAB:
 cmp al,0x0F ; tab ******
@@ -131,8 +237,7 @@ loop CC
 jmp checkAgain
 ENTR:
 cmp al,0x1C ; enter
-jne CHARS
-mov esi,edi
+jne NEXT2
 xor edx,edx
 mov eax,edi
 sub eax,0xB8000
@@ -142,7 +247,105 @@ sub edx,0xA0
 sub edi,edx
 jmp checkAgain
 
+NEXT2:
+cmp AL,0x52
+jne NEXT3
+test byte[STATUS],0x01
+jz checkAgain
+mov AL,'0'
+jmp print
+NEXT3:
+cmp al,0x3F
+jne NEXT4
+test byte[STATUS],0x01
+jz end
+mov AL,'1'
+jmp print
+NEXT4:
+cmp al,0x50
+jne NEXT5
+test byte[STATUS],0x01
+jz down
+mov AL,'2'
+jmp print
+NEXT5:
+cmp al,0x51
+jne NEXT6
+test byte[STATUS],0x01
+jz PAGEDOWN
+mov AL,'3'
+jmp print
 
+NEXT6:
+cmp al,0x4B
+jne NEXT7
+test byte[STATUS],0x01
+jz left
+mov AL,'4'
+jmp print
+NEXT7:
+cmp al,0x4C
+jne NEXT8
+test byte[STATUS],0x01
+jz checkAgain
+mov AL,'5'
+jmp print
+NEXT8:
+cmp al,0x4D
+jne NEXT9
+test byte[STATUS],0x01
+jz right
+mov AL,'6'
+jmp print
+NEXT9:
+cmp al,0x47
+jne NEXT10
+test byte[STATUS],0x01
+jz home
+mov AL,'7'
+jmp print
+NEXT10:
+cmp al,0x48
+jne NEXT11
+test byte[STATUS],0x01
+jz up
+mov AL,'8'
+jmp print
+NEXT11:
+cmp al,0x49
+jne NEXT12
+test byte[STATUS],0x01
+jz PAGEUP
+mov AL,'9'
+jmp print
+NEXT12:
+cmp al,0x53
+jne NEXT13
+test byte[STATUS],0x01
+jz del
+mov al,'.'
+jmp print
+NEXT13:
+cmp al,0x37
+jne NEXT14
+test byte[STATUS],0x01
+jz checkAgain
+mov al,'*'
+jmp print
+NEXT14:
+cmp al,0x4A
+jne NEXT15
+test byte[STATUS],0x01
+jz checkAgain
+mov al,'-'
+jmp print
+NEXT15:
+cmp al,0x4E
+jne CHARS
+test byte[STATUS],0x01
+jz checkAgain
+mov al,'+'
+jmp print
 CHARS:
 
 cmp al,0x80
@@ -171,8 +374,7 @@ mov cl,dl
 add edi,2
 mov dl,[edi]
 mov [edi],cl
-dec esi
-cmp esi,0
+cmp dl,0
 jne HB
 mov edi,ebp
 mov [edi],al
@@ -204,36 +406,91 @@ in al,0x60
 LEFTSH:
 cmp al,0x4B ; Left Arrow
 jne RIGHTSH
-dec edi
-dec edi
-mov byte[edi+1],0x1F
+sub edi,2
+cmp edi,esi
+jne VV
+and byte[STATUS],0xFB ; reset
+jmp checkAgain
+VV:
+or byte[STATUS],0x40 ; set
+call SetColor
 jmp checkAgain
 RIGHTSH:
 cmp al,0x4D ; Right Arrow
 jne UPSH
+call SetColor
 add edi,2
-mov byte[edi+1],0x1F
+cmp edi,esi
+jne VVc
+and byte[STATUS],0xFB ; reset
+jmp checkAgain
+VVc:
+or byte[STATUS],0x40 ; set
 jmp checkAgain
 UPSH:
 cmp al,0x48 ; up
 jne DOWNSH
-mov ecx,0x50 ;80 
-LABEL:
+cmp byte[edi-1],0x3F
+jne contin
+mov ecx,0x50
 sub edi,2
-mov byte[edi+1],0x1F
+mov edx,2
+jmp LABEL
+contin:
+mov ecx,0x50 ;
+xor edx,edx
+LABEL:
+call SetColor
+sub edi,2
 loop LABEL
+add edi,edx
+cmp edi,esi
+jne VVe
+and byte[STATUS],0xFB ; reset
+jmp checkAgain
+VVe:
+or byte[STATUS],0x40 ; set
 jmp checkAgain
 DOWNSH:
 cmp al,0x50 ;down
 jne checkAgain
-mov ecx,0x50 ;80 
-LABEL2:
+cmp byte[edi+3],0x3F
+jne contin2
+mov ecx,0x50
 add edi,2
-mov byte[edi+1],0x1F
+mov edx,2
+jmp LABEL2
+contin2:
+mov ecx,0x50 ;
+xor edx,edx
+LABEL2:
+call SetColor
+add edi,2
 loop LABEL2
+sub edi,edx
+cmp edi,esi
+jne VVw
+and byte[STATUS],0xFB ; reset
+jmp checkAgain
+VVw:
+or byte[STATUS],0x40 ; set
 jmp checkAgain
 
+PAGEDOWN:
+;######
+jmp checkAgain
+PAGEUP:
+;####
+jmp checkAgain
 
+ SetColor:
+cmp byte[edi+1],0x3F
+je unshade
+mov byte[edi+1],0x3F
+ret
+unshade:
+mov byte[edi+1],0x0F
+ret
 SetCursor:
 push ebx
 mov eax,edi
@@ -250,11 +507,41 @@ int 0x10
 pop ebx
 ret
 
+COPY:
+cmp edi,esi
+jg BN
+xchg esi,edi
+BN:
+mov ecx,edi
+sub ecx,esi ; length
+mov [length],ecx
+xor ecx,ecx
+AD:
+mov al,[esi+ecx*2]
+mov [MyMemory + ecx],al
+inc ecx
+cmp ecx,[length]
+jl AD
+ret
+
+PASTE:
+
+xor ecx,ecx
+AD2:
+mov al,[MyMemory + ecx]
+mov [esi+ecx*2],al 
+inc ecx
+cmp ecx,[length]
+jl AD2
+ret
+ret
 ScanCodeTable:   db "//1234567890-=//qwertyuiop[]//asdfghjkl;'`/\zxcvbnm,.//// /"
 ScanCodeTableSH: db '//!@#$%^&*()_+//QWERTYUIOP{}//ASDFGHJKL:"~/|ZXCVBNM<>?/// /' 
-STATUS: db 0 ; X _ X _ X _ X _ X _ SH _ CL _ NL 
-; shift at bit 2 , capslock at bit 1 and numlock at bit 0
-
+STATUS: db 0 ; X _ X _ X _ X _ X _ SHADED _ CL _ NL 
+;  capslock at bit 1 and numlock at bit 0
+;  bit 2 tells you if there is a shaded text (bounded between esi and edi)
+length : dd 0
+MyMemory: times(25*80) db 0
 times (0x400000 - 512) db 0
 
 db 	0x63, 0x6F, 0x6E, 0x65, 0x63, 0x74, 0x69, 0x78, 0x00, 0x00, 0x00, 0x02

@@ -24,6 +24,7 @@ cli
 	
         mov edi, 0xB8000
         mov bx,ScanCodeTable
+checkAgain:
 call SetCursor	
 in al,0x64
 and al,0x01

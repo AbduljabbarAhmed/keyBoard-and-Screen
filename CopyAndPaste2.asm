@@ -33,12 +33,28 @@ cli
         mov bx,ScanCodeTable
 checkAgain:
 call SetCursor	
-in al,0x64
-and al,0x01
+in al,0x64 ; XXXXXXXA
+and al,0x01 ; 
 jz checkAgain 	
 Read:
 in al,0x60
 ;###SPECIAL_CASES###
+
+CTRL:
+cmp al,0x1D
+jne CTRLBR
+ctrl:
+or byte[STATUS],0x08 ; set
+jmp checkAgain
+
+CTRLBR:
+cmp al,0x9D
+jne JBR
+ctrlbr:
+and byte[STATUS],0xF7 ; reset
+jmp checkAgain
+
+JBR:
 test byte[STATUS],0x08 ; check control status
 jz SHIFT ; continue
 ;here when Control_Is_Pressed
@@ -51,6 +67,10 @@ jmp checkAgain
 con2:
 cmp al,0x2F ; V
 jne con3
+test byte[STATUS],0x04 ; check shaded string
+jz jmpthere
+call DeleteFirst
+jmpthere:
 call PASTE
 jmp checkAgain
 
@@ -66,48 +86,141 @@ jmp checkAgain
 con4:
 cmp AL , 0x1E ; A
 jne con5
-test byte[STATUS],0x04 ; check shaded string
-jnz checkAgain
 mov edi,0xB8000
 mov [boundedBy],edi
 CTRLA:
-mov byte[edi+1],0x3F
-add edi,2
+cmp byte[edi],0
+je OVERCOME
+or byte[edi+1],0x30 ; 0011 0000
+OVERCOME:
+add edi,2             
 cmp edi,0xB8FA0
 jl CTRLA
+LP_1:
 sub edi,2
+cmp byte[edi-2],0
+je LP_1
 mov [boundedBy+4],edi
-or byte[STATUS],0x04
+or byte[STATUS],0x04 ; set shaded status
 jmp checkAgain
 con5:
-
+cmp al,0x2C ; Z
+jne con6
+mov edi,0xB8000
+mov [boundedBy],edi
+mov edi,0xB8F9E
+mov [boundedBy+4],edi
+mov ecx,25*80
+mov [length],ecx
+xor ecx,ecx
+mov esi,[boundedBy]
+AD1_:
+mov al,[PREVIOUS_STATUS + ecx] ; 
+mov [esi+ecx*2],al
+inc ecx
+cmp ecx,[length]
+jl AD1_
+LP_2:
+sub edi,2
+cmp byte[edi-2],0
+je LP_2
+jmp checkAgain
+con6:
+cmp al,0x1F ; S
+jne checkAgain
+push edi
+mov edi,0xB8000
+mov [boundedBy],edi
+mov edi,0xB8F9E
+mov [boundedBy+4],edi
+mov ecx,25*80
+mov [length],ecx
+xor ecx,ecx
+mov esi,[boundedBy]
+AD_:
+mov al,[esi+ecx*2]
+mov [PREVIOUS_STATUS + ecx],al
+inc ecx
+cmp ecx,[length]
+jl AD_
+pop edi
+jmp checkAgain
 SHIFT:
-cmp al,0x2A ; SH make
+cmp al,0x2A ; LSH make
 je shift
-cmp al,0x36 ;SH make
+cmp al,0x36 ;RSH make
 je shift
 SHIFTBREAK:
 cmp al,0xAA;R SH break
 jne SHIFTBREAK2
-mov ch,0
 mov bx,ScanCodeTable
 jmp checkAgain
 SHIFTBREAK2:
 cmp al,0xB6;L SH break
 jne CAPSLOCK
-mov ch,0
 mov bx,ScanCodeTable
 jmp checkAgain
 CAPSLOCK: ; make
 cmp al,0x3A
 jne NUMLOCK
-xor byte[STATUS],0x02;set 
+xor byte[STATUS],0x02;toggle  0000 0010
 jmp checkAgain
 NUMLOCK: ; make
 cmp al,0x45
-jne Arrows
-xor byte[STATUS],0x01;set 
+jne ALT
+xor byte[STATUS],0x01; toggle  0000 0001
 jmp checkAgain
+
+ALT: ; to change color of shaded string
+; ALT + R = red 
+; ALT + B = blue
+; ALT + Y = yellow
+; ALT + G = green
+; ALT + W = white
+cmp al,0x38
+jne ALTBR
+alt:
+or byte[STATUS],0x10 ; set    0001 0000  
+jmp checkAgain
+ALTBR:
+cmp al,0xB8
+jne CHECK_ALT
+alt_br:
+and byte[STATUS],0xEF ; reset 1110 1111
+jmp checkAgain
+
+
+CHECK_ALT:
+test byte[STATUS],0x10 ; alt
+jz Arrows
+RED:
+cmp al,0x13 ; r
+jne BLUE
+mov cl,0x04
+jmp there
+BLUE:
+cmp al,0x30 ; b
+jne GREEN
+mov cl,0x01
+jmp there
+GREEN:
+cmp al,0x22 ; g
+jne YELLOW
+mov cl,0x0A
+jmp there
+YELLOW: 
+cmp al,0x15 ; y
+jne WHITE
+mov cl,0x0E
+jmp there
+WHITE:
+cmp al,0x11 ; w
+jne checkAgain
+mov cl,0x0F
+there:
+call changeColor
+jmp checkAgain
+
 Arrows: ; [0xE0 arrow] or [0xE0 0xAA 0xE0 arrow] or [0xE0 0xB6 0xE0 arrow]
 cmp AL,0xE0
 jne BKSP
@@ -129,6 +242,8 @@ left:
 test byte[STATUS],0x04 ; SHADED
 jz LM1
 call RemoveShading
+mov edi,[boundedBy]
+jmp checkAgain
 LM1:
 cmp edi,0xB8000
 je checkAgain
@@ -164,10 +279,12 @@ right:
 test byte[STATUS],0x04 ; SHADED
 jz LM2
 call RemoveShading
+mov edi,[boundedBy+4]
+jmp checkAgain
 LM2:
-cmp edi,0xFA0
-je checkAgain
-cmp byte[edi+2],0
+cmp edi,0xB8FA0
+jge checkAgain
+cmp byte[edi],0 
 je nextline
 add edi,2
 jmp checkAgain
@@ -175,10 +292,13 @@ nextline:
 xor edx,edx
 mov eax,edi
 sub eax,0xB8000
-mov ecx,0xA0
+mov ecx,0xA0 ; 160
 div ecx
 sub edx,0xA0
-sub edi,edx
+neg edx
+cmp byte[edi+edx],0
+je checkAgain
+add edi,edx
 jmp checkAgain
 UP:
 cmp al,0x48 ; up
@@ -206,7 +326,7 @@ cmp byte[edi-2],0
 je RepeatThat2
 DOWN:
 cmp al,0x50 ;down
-jne Del
+jne R_ALT
 down:
 test byte[STATUS],0x04 ; SHADED
 jz LM4
@@ -228,7 +348,14 @@ cmp byte[edi-2],0
 je RepeatThat3
 jmp checkAgain
 
-
+R_ALT:
+cmp al,0x38
+jne R_ALT_BR
+jmp alt
+R_ALT_BR:
+cmp al,0xB8
+jne Del
+jmp alt_br
 Del:
 ;;;;
 cmp AL,0x53
@@ -241,8 +368,8 @@ jmp checkAgain
 LMEA:
 mov ebp,edi
 HA2:
-mov dl,[edi+2]
-mov [edi],dl
+mov dx,[edi+2] ; char + color
+mov [edi],dx
 add edi,2
 cmp dl,0
 jne HA2
@@ -265,7 +392,7 @@ div ecx
 sub edi,edx
 jmp checkAgain
 END:
-cmp AL,0x3F
+cmp AL,0x4F
 jne CTRL2
 end:
 test byte[STATUS],0x04 ; SHADED
@@ -300,10 +427,12 @@ jz LMEA2
 call DeleteFirst
 jmp checkAgain
 LMEA2:
+cmp edi,0xB8000
+je checkAgain
 mov ebp,edi
 HA:
-mov dl,[edi]
-mov [edi-2],dl
+mov dx,[edi]
+mov [edi-2],dx
 add edi,2
 cmp dl,0
 jne HA
@@ -322,22 +451,13 @@ jmp LMEA2
 TAB:
 cmp al,0x0F ; tab ******
 jne ENTR
-
-
-push edi
-mov [boundedBy],edi
-add edi,16
-mov [boundedBy+4],edi
-call COPY
-pop edi
 mov ecx,8
-CC:
-mov byte[edi],' '
-inc edi
-inc edi
-loop CC
-call PASTE
-mov dword[length],0
+LP_0:
+push ecx
+mov al,0x20 ; space
+call Insert
+pop ecx
+loop LP_0
 jmp checkAgain
 ENTR:
 cmp al,0x1C ; enter
@@ -354,31 +474,25 @@ jne that
 add edi,edx
 jmp checkAgain
 that:
-push edx
-add edx,edi
 mov esi,edi
-CHLP:
+add edi,edx
+push edi
+mov ecx,edx
+LOO:
+push ecx
 mov al,[esi]
 cmp al,0
-je enough
+je goThere
+mov byte[esi],0
+call Insert
 add esi,2
-cmp esi,edx
-jl CHLP
-
-enough:
-mov edx,esi
-push edi
-mov [boundedBy],edi
-mov [boundedBy+4],edx
-call COPY
-call DeleteFirst
+pop ecx
+loop LOO
+sub esp,4
+goThere:
+add esp,4
 pop edi
-pop edx
-add edi,edx ; next line
-call PASTE
-mov dword[length],0
 jmp checkAgain
-
 NEXT2:
 cmp AL,0x52
 jne NEXT3
@@ -473,25 +587,13 @@ mov al,'-'
 jmp print
 NEXT15:
 cmp al,0x4E
-jne CTRL
+jne CHARS
 test byte[STATUS],0x01
 jz checkAgain
 mov al,'+'
 jmp print
 
-CTRL:
-cmp al,0x1D
-jne CTRLBR
-ctrl:
-or byte[STATUS],0x08 ; set
-jmp checkAgain
 
-CTRLBR:
-cmp al,0x9D
-jne CHARS
-ctrlbr:
-and byte[STATUS],0xF7 ; reset
-jmp checkAgain
 
 CHARS:
 
@@ -504,16 +606,16 @@ cmp al,'a'
 jb d
 cmp al,'z'
 ja d
-sub AL,0x20 ; to cap
+sub AL,0x20 ; small to cap
 jmp print
 d:
 cmp al,'A'
 jb print
 cmp al,'Z'
 ja print
-add AL,0x20 ; to small
+add AL,0x20 ; cap to small
 print:
-test byte[STATUS],0x04
+test byte[STATUS],0x04 ; shaded
 jz AMHB
 and byte[STATUS],0xFB
 call DeleteFirst
@@ -530,8 +632,6 @@ mov edi,[boundedBy+4]
 mov ecx,edi
 sub ecx,esi
 shr ecx,1
-add esi,2
-mov [length],ecx
 OuterLp:
 mov ebp,edi
 cloop:
@@ -544,12 +644,13 @@ jne cloop
 mov edi,ebp
 sub edi,2
 loop OuterLp
+and byte[STATUS],0xFB
 ret
 
 RemoveShading:
 mov eax,[boundedBy]
 LPS:
-mov byte[eax+1],0x0F
+and byte[eax+1],0x0F
 add eax,2
 cmp eax,[boundedBy+4]
 jle LPS
@@ -557,7 +658,6 @@ and byte[STATUS],0xFB
 ret
 
 shift:
-mov ch,1
 mov bx,ScanCodeTableSH
 jmp checkAgain
 
@@ -593,10 +693,10 @@ mov [boundedBy],edi
 cmp edi,[boundedBy+4]
 jne VV
 VW:
-and byte[STATUS],0xFB ; reset
+and byte[STATUS],0xFB ; reset shaded status ,and with:(1111 1011)
 jmp checkAgain
 VV:
-or byte[STATUS],0x04 ; set
+or byte[STATUS],0x04 ; set shaded status , or with:(0000 0100)
 call SetColor
 jmp checkAgain
 RIGHTSH:
@@ -694,49 +794,59 @@ PAGEUP:
 ;####
 jmp checkAgain
 
- SetColor:
+SetColor:
  cmp byte[edi],0
  jne COLR
  ret
  COLR:
-cmp byte[edi+1],0x3F
-je unshade
-mov byte[edi+1],0x3F
+test byte[edi+1],0x30 ; 0011 0000
+jnz unshade
+or byte[edi+1],0x30  ; 0011 0000 (shading)
 ret
 unshade:
-mov byte[edi+1],0x0F
+and byte[edi+1],0x0F ; 0000 1111 (unshading)
 ret
 
 Insert: ;AL in EDI
-mov ebp,edi
-mov dl,[edi]
-mov dh,[edi+1]
+mov ebp,edi 
+mov dx,[edi] ; char + color ( dh : dl) "little endian" 
 HB:
-mov cl,dl
-mov ch,dh
+mov cx,dx
 add edi,2
-mov dl,[edi]
-mov dh,[edi+1]
-mov [edi],cl
-mov [edi+1],ch
-cmp dl,0
+mov dx,[edi]
+mov [edi],cx
+cmp dh,0
 jne HB
 mov edi,ebp
 mov [edi],al
 inc edi
 inc edi
 ret
+
+changeColor:
+mov eax,[boundedBy]
+oneMoreTime:
+
+or cl,0x30 ; 
+mov [eax+1],cl
+add eax,2
+cmp eax,[boundedBy+4]
+jl oneMoreTime
+ret
+
 SetCursor:
+cli
 push ebx
-mov eax,edi
+mov eax,edi ; (i*c+j)*1 + 0xB8000
 sub eax,0xB8000
-mov ecx,160
+mov ecx,160 ; c
 xor edx,edx
-div ecx
+div ecx ; i in al , j in dl
 mov dh,al ; row
 ; column is already in edx and so in dl, but multiplied by 2
 shr dl,1 ; div by 2
-mov ah,0x02
+;;; ah = 2 , dh = row , dl = column , bh = page
+mov ah,0x02 ; set cursor position
 mov bh,0
 int 0x10
 pop ebx
@@ -775,12 +885,15 @@ ret
 
 ScanCodeTable:   db "//1234567890-=//qwertyuiop[]//asdfghjkl;'`/\zxcvbnm,.//// /"
 ScanCodeTableSH: db '//!@#$%^&*()_+//QWERTYUIOP{}//ASDFGHJKL:"~/|ZXCVBNM<>?/// /' 
-STATUS: db 0 ; X _ X _ X _ X _ CTRL _ SHADED _ CapsL _ NumL 
+STATUS: db 0 ; X _ X _ X _ ALT _ CTRL _ SHADED _ CapsL _ NumL 
 ;  capslock at bit 1 and numlock at bit 0
 ;  bit 2 tells you if there is a shaded text (bounded between esi and edi)
+; bit 3 for CTRL and bit 4 for ALT
 length : dd 0
 boundedBy: dd 0,0
+C_length : dd 0
 MyMemory: times(25*80) db 0
+PREVIOUS_STATUS: times(25*80) db 0
 times (0x400000 - 512) db 0
 
 db 	0x63, 0x6F, 0x6E, 0x65, 0x63, 0x74, 0x69, 0x78, 0x00, 0x00, 0x00, 0x02

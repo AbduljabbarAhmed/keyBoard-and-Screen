@@ -17,22 +17,66 @@ times (510 - ($ - $$)) db 0
 db 0x55, 0xAA
 START:
 cli
+        
 	mov edi, 0xB8000
 	xor ax , ax  
 	mov ss , ax 
 	mov sp , 0xffff
-	
-        mov ah, 0x02
-        mov dh, 0x0A
-        mov dl, 0x10
-        mov bh, 0
+        mov ah,5
+        mov al,1
         int 0x10
-         
- 
+	mov byte[edi],'K'
+        mov ah, 0x02
+        mov dh, 0x00
+        mov dl, 0x01
+        mov bh, 1
+        int 0x10
+        mov ah,0x0A
+        mov al,'A'
+        mov bh,1
+        int 0x10
+        
+        mov ah, 0x02
+        mov dh, 0x00
+        mov dl, 0x02
+        mov bh, 1
+        int 0x10
+        mov ah,0x0A
+        mov al,'M'
+        mov bh,1
+        int 0x10
+        mov ecx,0xB8000 
+         again:
+        
+        cmp byte[ecx],'A'
+        je one
+        add ecx,2
+        jmp again
+        one:
+        add ecx,2
+        cmp byte[ecx],'M'
+        je done
+        add ecx,2
+        jmp again
+        done:
+        mov ebp,ecx
+        sub ebp,4
+        mov edi,ebp
+        mov ebx,table
+        mov cl,28
+        A:
+        mov eax,ebp
+        shr eax,cl ; 
+        and eax,0x0F ;
+        xlat
+        mov [edi],al
+        add edi,2
+        sub cl,4
+        cmp cl,0
+        jnl A
 
 
-
-ScanCodeTable:   db "//1234567890-=//qwertyuiop[]//asdfghjkl;'`/\zxcvbnm,.//// /"
+table: db '0123456789ABCDEF',0
 ScanCodeTableSH: db '//!@#$%^&*()_+//QWERTYUIOP{}//ASDFGHJKL:"~/|ZXCVBNM<>?/// /' 
 
 

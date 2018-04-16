@@ -6,47 +6,12 @@ org 0x7C00
 	mov ds,ax
 	mov es,ax
 	mov edi, 0xB8000;
-mov esi,0xB8FA2
-	A:
-	in al,0x64
-        and al,0x01
-        jz A
-        
-        in al,0x60
-        cmp al,0x02
-        jne R
         mov ah,5
-        mov al,0
+        mov al,2
         int 0x10
-        mov bh,0
-        mov dh,0
-        mov dl,0
-        mov ah,2
-        int 0x10
-        mov ax,0x40;
-        mov ds,ax
-        mov edi,[0x004E]
+        mov edi,0xBA000
         mov byte[edi],'A'
-        add edi,2
-        R:
-        cmp al,0x03
-        jne A	
-        mov ah,5
-        mov al,1
-        int 0x10
-        mov bh,1
-        mov dh,10
-        mov dl,7
-        mov ah,2
-        int 0x10
-         mov ax,0x40;
-        mov ds,ax
-        mov edi,[0x004E]
-        mov byte[edi],'B'
         
-        add esi,2
-        jmp A
-
 ScanCodeTable: db "//1234567890-=//QWERTYUIOP[]//ASDFGHJKL;//'/ZXCVBNM,.//// /" 
 times (510 - ($ - $$)) db 0
 db 0x55, 0xAA

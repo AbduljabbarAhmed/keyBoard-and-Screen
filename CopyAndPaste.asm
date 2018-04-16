@@ -51,6 +51,10 @@ jmp checkAgain
 con2:
 cmp al,0x2F ; V
 jne con3
+test byte[STATUS],0x04 ; check shaded string
+jz jmpthere
+call DeleteFirst
+jmpthere:
 call PASTE
 jmp checkAgain
 
@@ -300,10 +304,12 @@ jz LMEA2
 call DeleteFirst
 jmp checkAgain
 LMEA2:
+cmp edi,0xB8000
+je checkAgain
 mov ebp,edi
 HA:
-mov dl,[edi]
-mov [edi-2],dl
+mov dx,[edi]
+mov [edi-2],dx
 add edi,2
 cmp dl,0
 jne HA
